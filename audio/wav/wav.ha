@@ -7,35 +7,38 @@ use io;
 // WAV file magic number.
 const MAGIC: [4]u8 = ['R', 'I', 'F', 'F'];
 
-// WAV file type header.
-const FT_HEADER: [4]u8 = ['W', 'A', 'V', 'E'];
+// RIFF type ID.
+const RIFF_TYPE_ID: [4]u8 = ['W', 'A', 'V', 'E'];
 
-// Format chunk marker.
+// Marks the beginning of the format chunk.
 const FORMAT_CHUNK_MARKER: [4]u8 = ['f', 'm', 't', ' '];
 
-// Marks the beginning of the data section.
+// Marks the beginning of the data chunk.
 const DATA_CHUNK_MARKER: [4]u8 = ['d', 'a', 't', 'a'];
 
+// Marks the beginning of the associated data list chunk.
+const LIST_CHUNK_MARKER: [4]u8 = ['L', 'I', 'S', 'T'];
+
 // A WAV header.
-type header = struct {
-	format_data_len: u32,
+export type header = struct {
+	file_len: u32,
 	format_type: u16,
 	n_channels: u16,
 	sample_rate: u32,
 	average_bps: u32,
 	block_align: u16,
 	bits_per_sample: u16,
+	data_bytelen: u32,
 };
 
 export type reader = struct {
 	vtable: io::stream,
 	src: io::handle,
-	head: header,
+	header: header,
 	remain: size,
-	seen: [64]u32,
 };
 
-const qoi_vtable = io::vtable {
+const wav_vtable = io::vtable {
 	reader = &wav_read,
 	...
 };
@@ -46,75 +49,90 @@ const qoi_vtable = io::vtable {
 export fn newreader(
 	src: io::handle,
 ) ((header, reader) | io::error | errors::invalid) = {
-	let magic: [4]u8 = [0...];
-	io::readall(src, magic)?;
-	if (!bytes::equal(MAGIC, magic)) {
-		return errors::invalid;
-	};
-	let head: [10]u8 = [0...];
-	io::readall(src, head)?;
+	let header = header { ... };
 
-	const header = header {
-		width = endian::begetu32(head[0..4]),
-		height = endian::begetu32(head[4..8]),
-		channels = head[8]: channels,
-		colorspace = head[9]: colorspace,
-	};
-	if (header.width == 0 || header.height == 0) {
+	let buffer: [4]u8 = [0...];
+
+	io::readall(src, buffer)?;
+	if (!bytes::equal(MAGIC, buffer)) {
 		return errors::invalid;
 	};
-	if (header.channels < channels::RGB || header.channels > channels::RGBA) {
+
+	io::readall(src, buffer)?;
+	header.file_len = endian::legetu32(buffer[0..4]);
+
+	io::readall(src, buffer)?;
+	if (!bytes::equal(RIFF_TYPE_ID, buffer)) {
 		return errors::invalid;
 	};
-	if (header.colorspace > colorspace::LINEAR) {
+
+	io::readall(src, buffer)?;
+	if (!bytes::equal(FORMAT_CHUNK_MARKER, buffer)) {
 		return errors::invalid;
 	};
+
+	io::readall(src, buffer)?;
+	const format_data_bytelen = endian::legetu32(buffer[0..4]);
+	let head_buffer: []u8 = alloc([0...], format_data_bytelen);
+	io::readall(src, head_buffer)?;
+	header.format_type = endian::legetu16(head_buffer[0..2]);
+	header.n_channels = endian::legetu16(head_buffer[2..4]);
+	header.sample_rate = endian::legetu32(head_buffer[4..8]);
+	header.average_bps = endian::legetu32(head_buffer[8..12]);
+	header.block_align = endian::legetu16(head_buffer[12..14]);
+	header.bits_per_sample = endian::legetu16(head_buffer[14..16]);
+	free(head_buffer);
+
+
+	io::readall(src, buffer)?;
+	if (bytes::equal(LIST_CHUNK_MARKER, buffer)) {
+		// Ignore list chunk.
+		// TODO: Is there a way to do this without allocating
+		// memory? io::seek() doesn't work.
+		io::readall(src, buffer)?;
+		const list_data_bytelen = endian::legetu32(buffer[0..4]);
+		let list_buffer: []u8 = alloc([0...], list_data_bytelen);
+		io::readall(src, list_buffer)?;
+		io::readall(src, buffer)?;
+	};
+
+	if (!bytes::equal(DATA_CHUNK_MARKER, buffer)) {
+		return errors::invalid;
+	};
+
+	io::readall(src, buffer)?;
+	header.data_bytelen = endian::legetu32(buffer[0..4]);
 
 	return (header, reader {
-		vtable = &qoi_vtable,
+		vtable = &wav_vtable,
 		src = src,
-		head = header,
-		remain = header.width * header.height,
-		seen = [0...],
-		color = 0xFF000000,
-		count = 0,
+		header = header,
+		remain = header.data_bytelen,
 	});
 };
 
 fn wav_read(st: *io::stream, buf: []u8) (size | io::error | io::EOF) = {
-	const orig = len(buf);
-	assert(len(buf) % size(u32) == 0,
-		"image::qoi: buffer size not divisible by four");
-	let buf = (buf: *[*]u32)[..len(buf) / 4];
-
 	let rd = st: *reader;
 	if (rd.remain == 0) {
-		let buf: [8]u8 = [0...];
-		io::readall(rd.src, buf)?;
-		if (!bytes::equal(buf, QOI_END)) {
-			return errors::invalid;
-		};
 		return io::EOF;
 	};
 
+	assert(len(buf) % size(u16) == 0,
+		"image::qoi: buffer size not divisible by 2");
+	if (rd.header.bits_per_sample != 16) {
+		abort("BPS other than 16 not currently implemented");
+	};
+	let buf = (buf: *[*]u16)[..len(buf) / 2];
+
 	let z = 0z;
 	for (len(buf) != 0 && rd.remain != 0) {
-		if (rd.count == 0) {
-			readtag(rd)?;
-		};
-		assert(rd.count != 0);
-
-		let n = rd.count;
-		if (n > len(buf)) {
-			n = len(buf);
-		};
-		for (let i = 0z; i < n; i += 1) {
-			buf[i] = rd.color;
-		};
-		buf = buf[n..];
-		rd.remain -= n;
-		rd.count -= n;
-		z += n * 4;
+		// TODO: Improve performance by reading more at once.
+		let sample: [2]u8 = [0...];
+		io::readall(rd.src, sample)?;
+		buf[0] = endian::legetu16(sample);
+		buf = buf[2..];
+		rd.remain -= 2;
+		z += 2;
 	};
 
 	return z;
