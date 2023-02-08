@@ -118,22 +118,10 @@ fn wav_read(st: *io::stream, buf: []u8) (size | io::error | io::EOF) = {
 	};
 
 	assert(len(buf) % size(u16) == 0,
-		"image::qoi: buffer size not divisible by 2");
+		"audio::wav: buffer size not divisible by 2");
 	if (rd.header.bits_per_sample != 16) {
 		abort("BPS other than 16 not currently implemented");
 	};
-	let buf = (buf: *[*]u16)[..len(buf) / 2];
 
-	let z = 0z;
-	for (len(buf) != 0 && rd.remain != 0) {
-		// TODO: Improve performance by reading more at once.
-		let sample: [2]u8 = [0...];
-		io::readall(rd.src, sample)?;
-		buf[0] = endian::legetu16(sample);
-		buf = buf[2..];
-		rd.remain -= 2;
-		z += 2;
-	};
-
-	return z;
+	return io::readall(rd.src, buf) as size;
 };
