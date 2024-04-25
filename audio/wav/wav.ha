@@ -123,5 +123,5 @@ fn wav_read(st: *io::stream, buf: []u8) (size | io::error | io::EOF) = {
 		abort("BPS other than 16 not currently implemented");
 	};
 
-	return io::readall(rd.src, buf) as size;
+	return io::readall(rd.src, buf);
 };
