@@ -83,21 +83,14 @@ export fn newreader(
 	header.bits_per_sample = endian::legetu16(head_buffer[14..16]);
 	free(head_buffer);
 
-
-	io::readall(src, buffer)?;
-	if (bytes::equal(LIST_CHUNK_MARKER, buffer)) {
-		// Ignore list chunk.
-		// TODO: Is there a way to do this without allocating
-		// memory? io::seek() doesn't work.
+	// Skip to data chunk
+	for (true) {
 		io::readall(src, buffer)?;
-		const list_data_bytelen = endian::legetu32(buffer[0..4]);
-		let list_buffer: []u8 = alloc([0...], list_data_bytelen);
-		io::readall(src, list_buffer)?;
+		if (bytes::equal(DATA_CHUNK_MARKER, buffer)) break;
 		io::readall(src, buffer)?;
-	};
-
-	if (!bytes::equal(DATA_CHUNK_MARKER, buffer)) {
-		return errors::invalid;
+		const cklen = endian::legetu32(buffer[0..4]);
+		let lreader = io::limitreader(src, cklen);
+		io::copy(io::empty, &lreader)!;
 	};
 
 	io::readall(src, buffer)?;
