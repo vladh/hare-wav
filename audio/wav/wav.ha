@@ -43,9 +43,9 @@ const wav_vtable = io::vtable {
 	...
 };
 
-// Creates a new WAV [[reader]]. Reads and verifies the QOI magic and header
-// before returning. Raw sample data may be read from returned [[io::stream]]
-// object as 16-bit signed samples.
+// Creates a new WAV [[reader]]. Reads and verifies the RIFF magic and WAV fmt
+// header before returning. Raw sample data may be read from returned
+// [[io::stream]] object as 16-bit signed samples.
 export fn newreader(
 	src: io::handle,
 ) ((header, reader) | io::error | errors::invalid) = {
