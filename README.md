@@ -1,5 +1,11 @@
 # Hare WAV Implementation
 
+## System-wide installation
+
+```
+make install
+```
+
 ## Vendoring
 
 ```

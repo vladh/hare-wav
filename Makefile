@@ -1,5 +1,17 @@
 .POSIX:
 .SUFFIXES:
+DESTDIR=
+PREFIX=/usr/local
+SRCDIR=$(PREFIX)/src
+HARESRCDIR=$(SRCDIR)/hare
+THIRDPARTYDIR=$(HARESRCDIR)/third-party
+
+install:
+	mkdir -p "$(DESTDIR)$(THIRDPARTYDIR)"/audio/wav
+	install -m644 audio/wav/*.ha "$(DESTDIR)$(THIRDPARTYDIR)"/audio/wav
+
+uninstall:
+	rm -rf $(DESTDIR)$(THIRDPARTYDIR)/audio/wav
 
 test:
 	mkdir -p bin
@@ -8,4 +20,4 @@ test:
 run:
 	hare run cmd/test
 
-.PHONY: test run
+.PHONY: all check install uninstall test run
