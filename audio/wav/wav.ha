@@ -48,7 +48,7 @@ const wav_vtable = io::vtable {
 // [[io::stream]] object as 16-bit signed samples.
 export fn newreader(
 	src: io::handle,
-) ((header, reader) | io::error | errors::invalid) = {
+) ((header, reader) | io::error | errors::invalid | nomem) = {
 	let header = header { ... };
 
 	let buffer: [4]u8 = [0...];
@@ -73,7 +73,7 @@ export fn newreader(
 
 	io::readall(src, buffer)?;
 	const format_data_bytelen = endian::legetu32(buffer[0..4]);
-	let head_buffer: []u8 = alloc([0...], format_data_bytelen);
+	let head_buffer: []u8 = alloc([0...], format_data_bytelen)?;
 	io::readall(src, head_buffer)?;
 	header.format_type = endian::legetu16(head_buffer[0..2]);
 	header.n_channels = endian::legetu16(head_buffer[2..4]);
